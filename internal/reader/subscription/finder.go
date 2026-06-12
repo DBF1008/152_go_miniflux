@@ -15,6 +15,7 @@ import (
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/reader/encoding"
 	"miniflux.app/v2/internal/reader/fetcher"
+	"miniflux.app/v2/internal/reader/json"
 	"miniflux.app/v2/internal/reader/parser"
 	"miniflux.app/v2/internal/urllib"
 
@@ -196,6 +197,7 @@ func (f *subscriptionFinder) findSubscriptionsFromWellKnownURLs(websiteURL strin
 		{"rss.xml", parser.FormatRSS},
 		{"rss/", parser.FormatRSS},
 		{"rss/feed.xml", parser.FormatRSS},
+		{"feed.json", parser.FormatJSON},
 	}
 
 	websiteURLRoot := urllib.RootURL(websiteURL)
@@ -225,11 +227,11 @@ func (f *subscriptionFinder) findSubscriptionsFromWellKnownURLs(websiteURL strin
 
 			responseHandler := fetcher.NewResponseHandler(f.requestBuilder.ExecuteRequest(fullURL))
 			localizedError := responseHandler.LocalizedError()
-			responseHandler.Close()
 
 			// Do not add redirections to the possible list of subscriptions to avoid confusion.
 			if responseHandler.IsRedirect() {
 				slog.Debug("Ignore URL redirection during feed discovery", slog.String("fullURL", fullURL))
+				responseHandler.Close()
 				continue
 			}
 
@@ -238,7 +240,29 @@ func (f *subscriptionFinder) findSubscriptionsFromWellKnownURLs(websiteURL strin
 					slog.String("fullURL", fullURL),
 					slog.Any("error", localizedError.Error()),
 				)
+				responseHandler.Close()
 				continue
+			}
+
+			// For JSON Feed candidates, read the body and validate that it is
+			// actually a JSON Feed (contains a "version" field with "jsonfeed").
+			// This prevents ordinary JSON endpoints from being mistaken for feeds.
+			if known.format == parser.FormatJSON {
+				body, readErr := responseHandler.ReadBody(config.Opts.HTTPClientMaxBodySize())
+				responseHandler.Close()
+				if readErr != nil {
+					slog.Debug("Ignore JSON feed candidate that could not be read during feed discovery",
+						slog.String("fullURL", fullURL),
+						slog.Any("error", readErr.Error()),
+					)
+					continue
+				}
+				if !json.IsJSONFeed(body) {
+					slog.Debug("Ignore non-JSON-Feed JSON endpoint during feed discovery", slog.String("fullURL", fullURL))
+					continue
+				}
+			} else {
+				responseHandler.Close()
 			}
 
 			subscriptions = append(subscriptions, &subscription{

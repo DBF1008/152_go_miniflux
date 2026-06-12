@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PATH=\"$PATH:/mnt/c/Program Files/Go/bin\")",
+      "Bash(go build:*)",
+      "Bash(\"/mnt/c/Program Files/Go/bin/go.exe\" env GONOSUMCHECK GONOSUMDB GOFLAGS GOMODCACHE GOWORK)"
+    ]
+  }
+}
