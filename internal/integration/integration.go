@@ -37,474 +37,193 @@ import (
 	"miniflux.app/v2/internal/model"
 )
 
+// dispatchSaveEntry runs a single "save entry" provider in a uniform way: when the
+// provider is enabled it logs a debug line, performs the send, and logs an error
+// when the send fails. The base log attributes (user_id, entry_id, entry_url) are
+// always emitted first, followed by any provider-specific attributes. Keeping this
+// skeleton in one place ensures logging and provider invocation stay consistent as
+// providers are added.
+func dispatchSaveEntry(enabled bool, provider string, entry *model.Entry, userID int64, extraAttrs []any, send func() error) {
+	if !enabled {
+		return
+	}
+
+	attrs := append([]any{
+		slog.Int64("user_id", userID),
+		slog.Int64("entry_id", entry.ID),
+		slog.String("entry_url", entry.URL),
+	}, extraAttrs...)
+
+	slog.Debug("Sending entry to "+provider, attrs...)
+
+	if err := send(); err != nil {
+		slog.Error("Unable to send entry to "+provider, append(attrs, slog.Any("error", err))...)
+	}
+}
+
 // SendEntry sends the entry to third-party providers when the user click on "Save".
 func SendEntry(entry *model.Entry, userIntegrations *model.Integration) {
-	if userIntegrations.BetulaEnabled {
-		slog.Debug("Sending entry to Betula",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := betula.NewClient(userIntegrations.BetulaURL, userIntegrations.BetulaToken)
-		err := client.CreateBookmark(
+	dispatchSaveEntry(userIntegrations.BetulaEnabled, "Betula", entry, userIntegrations.UserID, nil, func() error {
+		return betula.NewClient(userIntegrations.BetulaURL, userIntegrations.BetulaToken).CreateBookmark(
 			entry.URL,
 			entry.Title,
 			entry.Tags,
 		)
+	})
 
-		if err != nil {
-			slog.Error("Unable to send entry to Betula",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.PinboardEnabled {
-		slog.Debug("Sending entry to Pinboard",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := pinboard.NewClient(userIntegrations.PinboardToken)
-		err := client.CreateBookmark(
+	dispatchSaveEntry(userIntegrations.PinboardEnabled, "Pinboard", entry, userIntegrations.UserID, nil, func() error {
+		return pinboard.NewClient(userIntegrations.PinboardToken).CreateBookmark(
 			entry.URL,
 			entry.Title,
 			userIntegrations.PinboardTags,
 			userIntegrations.PinboardMarkAsUnread,
 		)
+	})
 
-		if err != nil {
-			slog.Error("Unable to send entry to Pinboard",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+	dispatchSaveEntry(userIntegrations.InstapaperEnabled, "Instapaper", entry, userIntegrations.UserID, nil, func() error {
+		return instapaper.NewClient(userIntegrations.InstapaperUsername, userIntegrations.InstapaperPassword).AddURL(entry.URL, entry.Title)
+	})
 
-	if userIntegrations.InstapaperEnabled {
-		slog.Debug("Sending entry to Instapaper",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
+	dispatchSaveEntry(userIntegrations.WallabagEnabled, "Wallabag", entry, userIntegrations.UserID,
+		[]any{slog.String("user_tags", userIntegrations.WallabagTags)},
+		func() error {
+			return wallabag.NewClient(
+				userIntegrations.WallabagURL,
+				userIntegrations.WallabagClientID,
+				userIntegrations.WallabagClientSecret,
+				userIntegrations.WallabagUsername,
+				userIntegrations.WallabagPassword,
+				userIntegrations.WallabagTags,
+				userIntegrations.WallabagOnlyURL,
+			).CreateEntry(entry.URL, entry.Title, entry.Content)
+		})
 
-		client := instapaper.NewClient(userIntegrations.InstapaperUsername, userIntegrations.InstapaperPassword)
-		if err := client.AddURL(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Instapaper",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.WallabagEnabled {
-		slog.Debug("Sending entry to Wallabag",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.String("user_tags", userIntegrations.WallabagTags),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := wallabag.NewClient(
-			userIntegrations.WallabagURL,
-			userIntegrations.WallabagClientID,
-			userIntegrations.WallabagClientSecret,
-			userIntegrations.WallabagUsername,
-			userIntegrations.WallabagPassword,
-			userIntegrations.WallabagTags,
-			userIntegrations.WallabagOnlyURL,
-		)
-
-		if err := client.CreateEntry(entry.URL, entry.Title, entry.Content); err != nil {
-			slog.Error("Unable to send entry to Wallabag",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.String("user_tags", userIntegrations.WallabagTags),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.NotionEnabled {
-		slog.Debug("Sending entry to Notion",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := notion.NewClient(
+	dispatchSaveEntry(userIntegrations.NotionEnabled, "Notion", entry, userIntegrations.UserID, nil, func() error {
+		return notion.NewClient(
 			userIntegrations.NotionToken,
 			userIntegrations.NotionPageID,
-		)
-		if err := client.UpdateDocument(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Notion",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+		).UpdateDocument(entry.URL, entry.Title)
+	})
 
-	if userIntegrations.NunuxKeeperEnabled {
-		slog.Debug("Sending entry to NunuxKeeper",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := nunuxkeeper.NewClient(
+	dispatchSaveEntry(userIntegrations.NunuxKeeperEnabled, "NunuxKeeper", entry, userIntegrations.UserID, nil, func() error {
+		return nunuxkeeper.NewClient(
 			userIntegrations.NunuxKeeperURL,
 			userIntegrations.NunuxKeeperAPIKey,
-		)
+		).AddEntry(entry.URL, entry.Title, entry.Content)
+	})
 
-		if err := client.AddEntry(entry.URL, entry.Title, entry.Content); err != nil {
-			slog.Error("Unable to send entry to NunuxKeeper",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.EspialEnabled {
-		slog.Debug("Sending entry to Espial",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := espial.NewClient(
+	dispatchSaveEntry(userIntegrations.EspialEnabled, "Espial", entry, userIntegrations.UserID, nil, func() error {
+		return espial.NewClient(
 			userIntegrations.EspialURL,
 			userIntegrations.EspialAPIKey,
-		)
+		).CreateLink(entry.URL, entry.Title, userIntegrations.EspialTags)
+	})
 
-		if err := client.CreateLink(entry.URL, entry.Title, userIntegrations.EspialTags); err != nil {
-			slog.Error("Unable to send entry to Espial",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.LinkAceEnabled {
-		slog.Debug("Sending entry to LinkAce",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := linkace.NewClient(
+	dispatchSaveEntry(userIntegrations.LinkAceEnabled, "LinkAce", entry, userIntegrations.UserID, nil, func() error {
+		return linkace.NewClient(
 			userIntegrations.LinkAceURL,
 			userIntegrations.LinkAceAPIKey,
 			userIntegrations.LinkAceTags,
 			userIntegrations.LinkAcePrivate,
 			userIntegrations.LinkAceCheckDisabled,
-		)
-		if err := client.AddURL(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to LinkAce",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+		).AddURL(entry.URL, entry.Title)
+	})
 
-	if userIntegrations.LinkdingEnabled {
-		slog.Debug("Sending entry to Linkding",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := linkding.NewClient(
+	dispatchSaveEntry(userIntegrations.LinkdingEnabled, "Linkding", entry, userIntegrations.UserID, nil, func() error {
+		return linkding.NewClient(
 			userIntegrations.LinkdingURL,
 			userIntegrations.LinkdingAPIKey,
 			userIntegrations.LinkdingTags,
 			userIntegrations.LinkdingMarkAsUnread,
-		)
-		if err := client.CreateBookmark(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Linkding",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+		).CreateBookmark(entry.URL, entry.Title)
+	})
 
-	if userIntegrations.LinktacoEnabled {
-		slog.Debug("Sending entry to LinkTaco",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := linktaco.NewClient(
+	dispatchSaveEntry(userIntegrations.LinktacoEnabled, "LinkTaco", entry, userIntegrations.UserID, nil, func() error {
+		return linktaco.NewClient(
 			userIntegrations.LinktacoAPIToken,
 			userIntegrations.LinktacoOrgSlug,
 			userIntegrations.LinktacoTags,
 			userIntegrations.LinktacoVisibility,
-		)
-		if err := client.CreateBookmark(entry.URL, entry.Title, entry.Content); err != nil {
-			slog.Error("Unable to send entry to LinkTaco",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
+		).CreateBookmark(entry.URL, entry.Title, entry.Content)
+	})
+
+	var linkwardenExtra []any
+	if userIntegrations.LinkwardenCollectionID != nil {
+		linkwardenExtra = []any{slog.Int64("collection_id", *userIntegrations.LinkwardenCollectionID)}
 	}
-
-	if userIntegrations.LinkwardenEnabled {
-		attrs := []any{
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		}
-
-		if userIntegrations.LinkwardenCollectionID != nil {
-			attrs = append(attrs, slog.Int64("collection_id", *userIntegrations.LinkwardenCollectionID))
-		}
-
-		slog.Debug("Sending entry to linkwarden", attrs...)
-
-		client := linkwarden.NewClient(
+	dispatchSaveEntry(userIntegrations.LinkwardenEnabled, "Linkwarden", entry, userIntegrations.UserID, linkwardenExtra, func() error {
+		return linkwarden.NewClient(
 			userIntegrations.LinkwardenURL,
 			userIntegrations.LinkwardenAPIKey,
 			userIntegrations.LinkwardenCollectionID,
-		)
-		if err := client.CreateBookmark(entry.URL, entry.Title); err != nil {
-			attrs = append(attrs, slog.Any("error", err))
-			slog.Error("Unable to send entry to Linkwarden", attrs...)
-		}
-	}
+		).CreateBookmark(entry.URL, entry.Title)
+	})
 
-	if userIntegrations.ReadeckEnabled {
-		slog.Debug("Sending entry to Readeck",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := readeck.NewClient(
+	dispatchSaveEntry(userIntegrations.ReadeckEnabled, "Readeck", entry, userIntegrations.UserID, nil, func() error {
+		return readeck.NewClient(
 			userIntegrations.ReadeckURL,
 			userIntegrations.ReadeckAPIKey,
 			userIntegrations.ReadeckLabels,
 			userIntegrations.ReadeckOnlyURL,
-		)
-		if err := client.CreateBookmark(entry.URL, entry.Title, entry.Content); err != nil {
-			slog.Error("Unable to send entry to Readeck",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+		).CreateBookmark(entry.URL, entry.Title, entry.Content)
+	})
 
-	if userIntegrations.ReadwiseEnabled {
-		slog.Debug("Sending entry to Readwise",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := readwise.NewClient(
+	dispatchSaveEntry(userIntegrations.ReadwiseEnabled, "Readwise", entry, userIntegrations.UserID, nil, func() error {
+		return readwise.NewClient(
 			userIntegrations.ReadwiseAPIKey,
-		)
+		).CreateDocument(entry.URL)
+	})
 
-		if err := client.CreateDocument(entry.URL); err != nil {
-			slog.Error("Unable to send entry to Readwise",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+	dispatchSaveEntry(userIntegrations.CuboxEnabled, "Cubox", entry, userIntegrations.UserID, nil, func() error {
+		return cubox.NewClient(userIntegrations.CuboxAPILink).SaveLink(entry.URL)
+	})
 
-	if userIntegrations.CuboxEnabled {
-		slog.Debug("Sending entry to Cubox",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := cubox.NewClient(userIntegrations.CuboxAPILink)
-
-		if err := client.SaveLink(entry.URL); err != nil {
-			slog.Error("Unable to send entry to Cubox",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.ShioriEnabled {
-		slog.Debug("Sending entry to Shiori",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := shiori.NewClient(
+	dispatchSaveEntry(userIntegrations.ShioriEnabled, "Shiori", entry, userIntegrations.UserID, nil, func() error {
+		return shiori.NewClient(
 			userIntegrations.ShioriURL,
 			userIntegrations.ShioriUsername,
 			userIntegrations.ShioriPassword,
-		)
+		).CreateBookmark(entry.URL, entry.Title)
+	})
 
-		if err := client.CreateBookmark(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Shiori",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.ShaarliEnabled {
-		slog.Debug("Sending entry to Shaarli",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := shaarli.NewClient(
+	dispatchSaveEntry(userIntegrations.ShaarliEnabled, "Shaarli", entry, userIntegrations.UserID, nil, func() error {
+		return shaarli.NewClient(
 			userIntegrations.ShaarliURL,
 			userIntegrations.ShaarliAPISecret,
-		)
+		).CreateLink(entry.URL, entry.Title)
+	})
 
-		if err := client.CreateLink(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Shaarli",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
+	dispatchSaveEntry(userIntegrations.ArchiveorgEnabled, "Archive.org", entry, userIntegrations.UserID, nil, func() error {
+		return archiveorg.NewClient().SendURL(entry.URL)
+	})
+
+	webhookURL := userIntegrations.WebhookURL
+	if entry.Feed != nil && entry.Feed.WebhookURL != "" {
+		webhookURL = entry.Feed.WebhookURL
 	}
+	dispatchSaveEntry(userIntegrations.WebhookEnabled, "Webhook", entry, userIntegrations.UserID,
+		[]any{slog.String("webhook_url", webhookURL)},
+		func() error {
+			return webhook.NewClient(webhookURL, userIntegrations.WebhookSecret).SendSaveEntryWebhookEvent(entry)
+		})
 
-	if userIntegrations.ArchiveorgEnabled {
-		slog.Debug("Sending entry to archive.org",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
+	dispatchSaveEntry(userIntegrations.OmnivoreEnabled, "Omnivore", entry, userIntegrations.UserID, nil, func() error {
+		return omnivore.NewClient(userIntegrations.OmnivoreAPIKey, userIntegrations.OmnivoreURL).SaveURL(entry.URL)
+	})
 
-		if err := archiveorg.NewClient().SendURL(entry.URL); err != nil {
-			slog.Error("Unable to send entry to Archive.org",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+	dispatchSaveEntry(userIntegrations.KarakeepEnabled, "Karakeep", entry, userIntegrations.UserID,
+		[]any{slog.String("user_tags", userIntegrations.KarakeepTags)},
+		func() error {
+			return karakeep.NewClient(
+				userIntegrations.KarakeepAPIKey,
+				userIntegrations.KarakeepURL,
+				userIntegrations.KarakeepTags,
+			).SaveURL(entry.URL)
+		})
 
-	if userIntegrations.WebhookEnabled {
-		var webhookURL string
-		if entry.Feed != nil && entry.Feed.WebhookURL != "" {
-			webhookURL = entry.Feed.WebhookURL
-		} else {
-			webhookURL = userIntegrations.WebhookURL
-		}
-
-		slog.Debug("Sending entry to Webhook",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-			slog.String("webhook_url", webhookURL),
-		)
-
-		webhookClient := webhook.NewClient(webhookURL, userIntegrations.WebhookSecret)
-		if err := webhookClient.SendSaveEntryWebhookEvent(entry); err != nil {
-			slog.Error("Unable to send entry to Webhook",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.String("webhook_url", webhookURL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.OmnivoreEnabled {
-		slog.Debug("Sending entry to Omnivore",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := omnivore.NewClient(userIntegrations.OmnivoreAPIKey, userIntegrations.OmnivoreURL)
-		if err := client.SaveURL(entry.URL); err != nil {
-			slog.Error("Unable to send entry to Omnivore",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.KarakeepEnabled {
-		slog.Debug("Sending entry to Karakeep",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.String("user_tags", userIntegrations.KarakeepTags),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := karakeep.NewClient(
-			userIntegrations.KarakeepAPIKey,
-			userIntegrations.KarakeepURL,
-			userIntegrations.KarakeepTags,
-		)
-		if err := client.SaveURL(entry.URL); err != nil {
-			slog.Error("Unable to send entry to Karakeep",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.String("user_tags", userIntegrations.KarakeepTags),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if userIntegrations.RaindropEnabled {
-		slog.Debug("Sending entry to Raindrop",
-			slog.Int64("user_id", userIntegrations.UserID),
-			slog.Int64("entry_id", entry.ID),
-			slog.String("entry_url", entry.URL),
-		)
-
-		client := raindrop.NewClient(userIntegrations.RaindropToken, userIntegrations.RaindropCollectionID, userIntegrations.RaindropTags)
-		if err := client.CreateRaindrop(entry.URL, entry.Title); err != nil {
-			slog.Error("Unable to send entry to Raindrop",
-				slog.Int64("user_id", userIntegrations.UserID),
-				slog.Int64("entry_id", entry.ID),
-				slog.String("entry_url", entry.URL),
-				slog.Any("error", err),
-			)
-		}
-	}
+	dispatchSaveEntry(userIntegrations.RaindropEnabled, "Raindrop", entry, userIntegrations.UserID, nil, func() error {
+		return raindrop.NewClient(userIntegrations.RaindropToken, userIntegrations.RaindropCollectionID, userIntegrations.RaindropTags).CreateRaindrop(entry.URL, entry.Title)
+	})
 }
 
 // PushEntries pushes a list of entries to activated third-party providers during feed refreshes.
