@@ -510,3 +510,27 @@ func TestFindCanonicalURLNotFound(t *testing.T) {
 		t.Errorf(`Expected effective URL when canonical not found, got %q`, canonicalURL)
 	}
 }
+
+func TestIsJSONFeed(t *testing.T) {
+	scenarios := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"JSON Feed v1.1", `{"version":"https://jsonfeed.org/version/1.1","title":"Example","items":[]}`, true},
+		{"JSON Feed v1", `{"version":"https://jsonfeed.org/version/1","title":"Example","items":[]}`, true},
+		{"JSON Feed with leading whitespace", "  \n\t" + `{"version":"https://jsonfeed.org/version/1.1","title":"x"}`, true},
+		{"Regular JSON object with unrelated version field", `{"version":"2.0","data":[1,2,3]}`, false},
+		{"Regular JSON API response with items", `{"status":"ok","items":[{"id":1}]}`, false},
+		{"JSON array", `[{"id":1}]`, false},
+		{"Not JSON", `<!DOCTYPE html><html></html>`, false},
+		{"Empty body", ``, false},
+		{"JSON null", `null`, false},
+	}
+
+	for _, scenario := range scenarios {
+		if got := isJSONFeed([]byte(scenario.body)); got != scenario.want {
+			t.Errorf(`isJSONFeed(%s) = %v, want %v`, scenario.name, got, scenario.want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ package subscription // import "miniflux.app/v2/internal/reader/subscription"
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -196,6 +197,9 @@ func (f *subscriptionFinder) findSubscriptionsFromWellKnownURLs(websiteURL strin
 		{"rss.xml", parser.FormatRSS},
 		{"rss/", parser.FormatRSS},
 		{"rss/feed.xml", parser.FormatRSS},
+		{"feed.json", parser.FormatJSON},
+		{"feed/json", parser.FormatJSON},
+		{"index.json", parser.FormatJSON},
 	}
 
 	websiteURLRoot := urllib.RootURL(websiteURL)
@@ -218,38 +222,86 @@ func (f *subscriptionFinder) findSubscriptionsFromWellKnownURLs(websiteURL strin
 				continue
 			}
 
-			// Some websites redirects unknown URLs to the home page.
-			// As result, the list of known URLs is returned to the subscription list.
-			// We don't want the user to choose between invalid feed URLs.
-			f.requestBuilder.WithoutRedirects()
-
-			responseHandler := fetcher.NewResponseHandler(f.requestBuilder.ExecuteRequest(fullURL))
-			localizedError := responseHandler.LocalizedError()
-			responseHandler.Close()
-
-			// Do not add redirections to the possible list of subscriptions to avoid confusion.
-			if responseHandler.IsRedirect() {
-				slog.Debug("Ignore URL redirection during feed discovery", slog.String("fullURL", fullURL))
-				continue
+			if f.isWellKnownFeedURL(known.format, fullURL) {
+				subscriptions = append(subscriptions, &subscription{
+					Type:  known.format,
+					Title: fullURL,
+					URL:   fullURL,
+				})
 			}
-
-			if localizedError != nil {
-				slog.Debug("Ignore invalid feed URL during feed discovery",
-					slog.String("fullURL", fullURL),
-					slog.Any("error", localizedError.Error()),
-				)
-				continue
-			}
-
-			subscriptions = append(subscriptions, &subscription{
-				Type:  known.format,
-				Title: fullURL,
-				URL:   fullURL,
-			})
 		}
 	}
 
 	return subscriptions, nil
+}
+
+// isWellKnownFeedURL probes a guessed well-known feed URL and reports whether it
+// should be offered to the user as a subscription.
+//
+// For XML feeds a successful, non-redirected response is enough because the path
+// itself (atom.xml, rss.xml, ...) strongly implies the format. JSON feed paths
+// are ambiguous: sites commonly expose unrelated JSON endpoints (REST APIs,
+// generated data files, ...) under names such as index.json, so the body is
+// parsed and accepted only when it is a genuine JSON Feed.
+func (f *subscriptionFinder) isWellKnownFeedURL(format, fullURL string) bool {
+	// Some websites redirect unknown URLs to the home page. We don't want to
+	// offer those redirections as feed URLs, so don't follow redirects here.
+	f.requestBuilder.WithoutRedirects()
+
+	responseHandler := fetcher.NewResponseHandler(f.requestBuilder.ExecuteRequest(fullURL))
+	defer responseHandler.Close()
+
+	// Do not add redirections to the possible list of subscriptions to avoid confusion.
+	if responseHandler.IsRedirect() {
+		slog.Debug("Ignore URL redirection during feed discovery", slog.String("fullURL", fullURL))
+		return false
+	}
+
+	if localizedError := responseHandler.LocalizedError(); localizedError != nil {
+		slog.Debug("Ignore invalid feed URL during feed discovery",
+			slog.String("fullURL", fullURL),
+			slog.Any("error", localizedError.Error()),
+		)
+		return false
+	}
+
+	// A reachable JSON document is not necessarily a feed, unlike XML paths whose
+	// extension already implies the format. Confirm it really is a JSON Feed
+	// before offering it, to avoid mistaking a plain JSON page for a subscription.
+	if format == parser.FormatJSON {
+		body, localizedError := responseHandler.ReadBody(config.Opts.HTTPClientMaxBodySize())
+		if localizedError != nil {
+			slog.Debug("Ignore unreadable JSON document during feed discovery",
+				slog.String("fullURL", fullURL),
+				slog.Any("error", localizedError.Error()),
+			)
+			return false
+		}
+
+		if !isJSONFeed(body) {
+			slog.Debug("Ignore non-feed JSON document during feed discovery", slog.String("fullURL", fullURL))
+			return false
+		}
+	}
+
+	return true
+}
+
+// isJSONFeed reports whether body is a JSON Feed rather than an arbitrary JSON
+// document. The JSON Feed specification requires a top-level "version" member
+// holding the URL of the spec version (e.g. "https://jsonfeed.org/version/1.1").
+// Regular JSON endpoints virtually never carry that marker, which makes it a
+// reliable way to avoid false positives during feed discovery.
+func isJSONFeed(body []byte) bool {
+	var feed struct {
+		Version string `json:"version"`
+	}
+
+	if err := json.Unmarshal(body, &feed); err != nil {
+		return false
+	}
+
+	return strings.Contains(strings.ToLower(feed.Version), "jsonfeed.org/version/")
 }
 
 func (f *subscriptionFinder) findSubscriptionsFromRSSBridge(websiteURL, rssBridgeURL string, rssBridgeToken string) (Subscriptions, *locale.LocalizedErrorWrapper) {
