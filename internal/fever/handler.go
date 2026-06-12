@@ -49,7 +49,7 @@ func (h *feverHandler) serve(w http.ResponseWriter, r *http.Request) {
 	case r.FormValue("mark") == "group":
 		h.handleWriteGroups(w, r)
 	default:
-		response.JSON(w, r, newBaseResponse())
+		respond(w, r, newBaseResponse())
 	}
 }
 
@@ -97,7 +97,7 @@ func (h *feverHandler) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 	result.FeedsGroups = buildFeedGroups(feeds)
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -157,7 +157,7 @@ func (h *feverHandler) handleFeeds(w http.ResponseWriter, r *http.Request) {
 
 	result.FeedsGroups = buildFeedGroups(feeds)
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -200,7 +200,7 @@ func (h *feverHandler) handleFavicons(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -325,7 +325,7 @@ func (h *feverHandler) handleItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -358,7 +358,7 @@ func (h *feverHandler) handleUnreadItems(w http.ResponseWriter, r *http.Request)
 	var result unreadResponse
 	result.ItemIDs = strings.Join(itemIDs, ",")
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -390,7 +390,7 @@ func (h *feverHandler) handleSavedItems(w http.ResponseWriter, r *http.Request) 
 
 	result := &savedResponse{ItemIDs: strings.Join(itemsIDs, ",")}
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	respond(w, r, result)
 }
 
 /*
@@ -422,7 +422,7 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 			slog.Int64("user_id", userID),
 			slog.Int64("entry_id", entryID),
 		)
-		response.JSON(w, r, newBaseResponse())
+		respond(w, r, newBaseResponse())
 		return
 	}
 
@@ -469,7 +469,7 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	respond(w, r, newBaseResponse())
 }
 
 /*
@@ -498,7 +498,7 @@ func (h *feverHandler) handleWriteFeeds(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	respond(w, r, newBaseResponse())
 }
 
 /*
@@ -537,7 +537,7 @@ func (h *feverHandler) handleWriteGroups(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	respond(w, r, newBaseResponse())
 }
 
 /*
