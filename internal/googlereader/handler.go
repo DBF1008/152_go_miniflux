@@ -991,6 +991,8 @@ func (h *greaderHandler) streamItemIDsHandler(w http.ResponseWriter, r *http.Req
 		h.handleReadStreamHandler(w, r, rm)
 	case FeedStream:
 		h.handleFeedStreamHandler(w, r, rm)
+	case LabelStream:
+		h.handleLabelStreamHandler(w, r, rm)
 	default:
 		slog.Warn("[GoogleReader] Unknown Stream",
 			slog.String("handler", "streamItemIDsHandler"),
@@ -1020,8 +1022,28 @@ func (h *greaderHandler) handleReadingListStreamHandler(w http.ResponseWriter, r
 		switch s.Type {
 		case ReadStream:
 			builder.WithStatuses(model.EntryStatusUnread)
+		case StarredStream:
+			builder.WithStarred(false)
 		default:
 			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
+				slog.String("handler", "handleReadingListStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case StarredStream:
+			builder.WithStarred(true)
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		default:
+			slog.Warn("[GoogleReader] Unknown FilterTargets filter type",
 				slog.String("handler", "handleReadingListStreamHandler"),
 				slog.String("client_ip", clientIP),
 				slog.String("user_agent", r.UserAgent()),
@@ -1047,11 +1069,43 @@ func (h *greaderHandler) handleReadingListStreamHandler(w http.ResponseWriter, r
 }
 
 func (h *greaderHandler) handleStarredStreamHandler(w http.ResponseWriter, r *http.Request, rm requestModifiers) {
+	clientIP := request.ClientIP(r)
+
 	builder := h.store.NewEntryQueryBuilder(rm.UserID).
 		WithStarred(true).
 		WithLimit(rm.Count).
 		WithOffset(rm.Offset).
 		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
+
+	for _, s := range rm.ExcludeTargets {
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		default:
+			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
+				slog.String("handler", "handleStarredStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		default:
+			slog.Warn("[GoogleReader] Unknown FilterTargets filter type",
+				slog.String("handler", "handleStarredStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
 
 	if rm.StartTime > 0 {
 		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
@@ -1071,11 +1125,41 @@ func (h *greaderHandler) handleStarredStreamHandler(w http.ResponseWriter, r *ht
 }
 
 func (h *greaderHandler) handleReadStreamHandler(w http.ResponseWriter, r *http.Request, rm requestModifiers) {
+	clientIP := request.ClientIP(r)
+
 	builder := h.store.NewEntryQueryBuilder(rm.UserID).
 		WithStatuses(model.EntryStatusRead).
 		WithLimit(rm.Count).
 		WithOffset(rm.Offset).
 		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
+
+	for _, s := range rm.ExcludeTargets {
+		switch s.Type {
+		case StarredStream:
+			builder.WithStarred(false)
+		default:
+			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
+				slog.String("handler", "handleReadStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case StarredStream:
+			builder.WithStarred(true)
+		default:
+			slog.Warn("[GoogleReader] Unknown FilterTargets filter type",
+				slog.String("handler", "handleReadStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
 
 	if rm.StartTime > 0 {
 		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
@@ -1117,6 +1201,8 @@ func getItemRefsAndContinuation(builder storage.EntryQueryBuilder, rm requestMod
 }
 
 func (h *greaderHandler) handleFeedStreamHandler(w http.ResponseWriter, r *http.Request, rm requestModifiers) {
+	clientIP := request.ClientIP(r)
+
 	feedID, err := strconv.ParseInt(rm.Streams[0].ID, 10, 64)
 	if err != nil {
 		response.JSONServerError(w, r, err)
@@ -1138,9 +1224,114 @@ func (h *greaderHandler) handleFeedStreamHandler(w http.ResponseWriter, r *http.
 	}
 
 	for _, s := range rm.ExcludeTargets {
-		if s.Type == ReadStream {
-			builder.WithoutStatus(model.EntryStatusRead)
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		case StarredStream:
+			builder.WithStarred(false)
+		default:
+			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
+				slog.String("handler", "handleFeedStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
 		}
+	}
+
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case StarredStream:
+			builder.WithStarred(true)
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		default:
+			slog.Warn("[GoogleReader] Unknown FilterTargets filter type",
+				slog.String("handler", "handleFeedStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	itemRefs, continuation, err := getItemRefsAndContinuation(*builder, rm)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+
+	response.JSON(w, r, streamIDResponse{itemRefs, continuation})
+}
+
+func (h *greaderHandler) handleLabelStreamHandler(w http.ResponseWriter, r *http.Request, rm requestModifiers) {
+	clientIP := request.ClientIP(r)
+
+	slog.Debug("[GoogleReader] Handle LabelStream",
+		slog.String("handler", "handleLabelStreamHandler"),
+		slog.String("client_ip", clientIP),
+		slog.String("user_agent", r.UserAgent()),
+		slog.String("label", rm.Streams[0].ID),
+	)
+
+	category, err := h.store.CategoryByTitle(rm.UserID, rm.Streams[0].ID)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+	if category == nil {
+		response.JSONNotFound(w, r)
+		return
+	}
+
+	builder := h.store.NewEntryQueryBuilder(rm.UserID).
+		WithCategoryID(category.ID).
+		WithLimit(rm.Count).
+		WithOffset(rm.Offset).
+		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
+
+	for _, s := range rm.ExcludeTargets {
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		case StarredStream:
+			builder.WithStarred(false)
+		default:
+			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
+				slog.String("handler", "handleLabelStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case StarredStream:
+			builder.WithStarred(true)
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		default:
+			slog.Warn("[GoogleReader] Unknown FilterTargets filter type",
+				slog.String("handler", "handleLabelStreamHandler"),
+				slog.String("client_ip", clientIP),
+				slog.String("user_agent", r.UserAgent()),
+				slog.Int("filter_type", int(s.Type)),
+			)
+		}
+	}
+
+	if rm.StartTime > 0 {
+		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
+	}
+
+	if rm.StopTime > 0 {
+		builder.BeforePublishedDate(time.Unix(rm.StopTime, 0))
 	}
 
 	itemRefs, continuation, err := getItemRefsAndContinuation(*builder, rm)
