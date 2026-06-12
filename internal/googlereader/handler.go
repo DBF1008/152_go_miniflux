@@ -1016,19 +1016,7 @@ func (h *greaderHandler) handleReadingListStreamHandler(w http.ResponseWriter, r
 		WithOffset(rm.Offset).
 		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
 
-	for _, s := range rm.ExcludeTargets {
-		switch s.Type {
-		case ReadStream:
-			builder.WithStatuses(model.EntryStatusUnread)
-		default:
-			slog.Warn("[GoogleReader] Unknown ExcludeTargets filter type",
-				slog.String("handler", "handleReadingListStreamHandler"),
-				slog.String("client_ip", clientIP),
-				slog.String("user_agent", r.UserAgent()),
-				slog.Int("filter_type", int(s.Type)),
-			)
-		}
-	}
+	applyStreamFilters(builder, rm)
 
 	if rm.StartTime > 0 {
 		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
@@ -1053,6 +1041,8 @@ func (h *greaderHandler) handleStarredStreamHandler(w http.ResponseWriter, r *ht
 		WithOffset(rm.Offset).
 		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
 
+	applyStreamFilters(builder, rm)
+
 	if rm.StartTime > 0 {
 		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
 	}
@@ -1076,6 +1066,8 @@ func (h *greaderHandler) handleReadStreamHandler(w http.ResponseWriter, r *http.
 		WithLimit(rm.Count).
 		WithOffset(rm.Offset).
 		WithSorting(model.DefaultSortingOrder, rm.SortDirection)
+
+	applyStreamFilters(builder, rm)
 
 	if rm.StartTime > 0 {
 		builder.AfterPublishedDate(time.Unix(rm.StartTime, 0))
@@ -1116,6 +1108,35 @@ func getItemRefsAndContinuation(builder storage.EntryQueryBuilder, rm requestMod
 	return itemRefs, continuation, nil
 }
 
+// applyStreamFilters restricts the query by the Google Reader "include target"
+// (it) and "exclude target" (xt) stream filters. They let clients narrow any
+// stream by read/unread/starred state on top of the base stream selection.
+// Miniflux only has the "read" and "unread" statuses, so excluding read is the
+// same as keeping unread and vice versa.
+func applyStreamFilters(builder *storage.EntryQueryBuilder, rm requestModifiers) {
+	for _, s := range rm.FilterTargets {
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		case StarredStream:
+			builder.WithStarred(true)
+		}
+	}
+
+	for _, s := range rm.ExcludeTargets {
+		switch s.Type {
+		case ReadStream:
+			builder.WithStatuses(model.EntryStatusUnread)
+		case KeptUnreadStream:
+			builder.WithStatuses(model.EntryStatusRead)
+		case StarredStream:
+			builder.WithStarred(false)
+		}
+	}
+}
+
 func (h *greaderHandler) handleFeedStreamHandler(w http.ResponseWriter, r *http.Request, rm requestModifiers) {
 	feedID, err := strconv.ParseInt(rm.Streams[0].ID, 10, 64)
 	if err != nil {
@@ -1137,11 +1158,7 @@ func (h *greaderHandler) handleFeedStreamHandler(w http.ResponseWriter, r *http.
 		builder.BeforePublishedDate(time.Unix(rm.StopTime, 0))
 	}
 
-	for _, s := range rm.ExcludeTargets {
-		if s.Type == ReadStream {
-			builder.WithoutStatus(model.EntryStatusRead)
-		}
-	}
+	applyStreamFilters(builder, rm)
 
 	itemRefs, continuation, err := getItemRefsAndContinuation(*builder, rm)
 	if err != nil {
