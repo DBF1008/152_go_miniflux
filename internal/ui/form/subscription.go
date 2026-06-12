@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"miniflux.app/v2/internal/locale"
+	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/urllib"
 	"miniflux.app/v2/internal/validator"
 )
@@ -91,5 +92,38 @@ func NewSubscriptionForm(r *http.Request) *SubscriptionForm {
 		BlockFilterEntryRules:       r.FormValue("block_filter_entry_rules"),
 		DisableHTTP2:                r.FormValue("disable_http2") == "1",
 		ProxyURL:                    r.FormValue("proxy_url"),
+	}
+}
+
+// NewFeedCreationRequest maps the subscription form to a feed creation request
+// for the given feed URL.
+//
+// It is the single source of truth for the "add subscription" flow: every
+// creation entry point (feed discovery, single direct feed, and multi-candidate
+// selection) builds its request through this method, so proxy, authentication,
+// and custom-rule settings stay consistent across all of them. The feed URL is
+// passed explicitly because the discovered/chosen feed URL can differ from the
+// URL the user submitted in the form.
+func (s *SubscriptionForm) NewFeedCreationRequest(feedURL string) *model.FeedCreationRequest {
+	return &model.FeedCreationRequest{
+		CategoryID:                  s.CategoryID,
+		FeedURL:                     feedURL,
+		Crawler:                     s.Crawler,
+		IgnoreEntryUpdates:          s.IgnoreEntryUpdates,
+		AllowSelfSignedCertificates: s.AllowSelfSignedCertificates,
+		UserAgent:                   s.UserAgent,
+		Cookie:                      s.Cookie,
+		Username:                    s.Username,
+		Password:                    s.Password,
+		ScraperRules:                s.ScraperRules,
+		RewriteRules:                s.RewriteRules,
+		UrlRewriteRules:             s.UrlRewriteRules,
+		BlocklistRules:              s.BlocklistRules,
+		KeeplistRules:               s.KeeplistRules,
+		KeepFilterEntryRules:        s.KeepFilterEntryRules,
+		BlockFilterEntryRules:       s.BlockFilterEntryRules,
+		FetchViaProxy:               s.FetchViaProxy,
+		DisableHTTP2:                s.DisableHTTP2,
+		ProxyURL:                    s.ProxyURL,
 	}
 }

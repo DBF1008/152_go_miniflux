@@ -9,7 +9,6 @@ import (
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
-	"miniflux.app/v2/internal/model"
 	feedHandler "miniflux.app/v2/internal/reader/handler"
 	"miniflux.app/v2/internal/ui/form"
 	"miniflux.app/v2/internal/ui/view"
@@ -45,27 +44,7 @@ func (h *handler) showChooseSubscriptionPage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	feed, localizedError := feedHandler.CreateFeed(h.store, user.ID, &model.FeedCreationRequest{
-		CategoryID:                  subscriptionForm.CategoryID,
-		FeedURL:                     subscriptionForm.URL,
-		Crawler:                     subscriptionForm.Crawler,
-		IgnoreEntryUpdates:          subscriptionForm.IgnoreEntryUpdates,
-		AllowSelfSignedCertificates: subscriptionForm.AllowSelfSignedCertificates,
-		UserAgent:                   subscriptionForm.UserAgent,
-		Cookie:                      subscriptionForm.Cookie,
-		Username:                    subscriptionForm.Username,
-		Password:                    subscriptionForm.Password,
-		ScraperRules:                subscriptionForm.ScraperRules,
-		RewriteRules:                subscriptionForm.RewriteRules,
-		UrlRewriteRules:             subscriptionForm.UrlRewriteRules,
-		BlocklistRules:              subscriptionForm.BlocklistRules,
-		KeeplistRules:               subscriptionForm.KeeplistRules,
-		KeepFilterEntryRules:        subscriptionForm.KeepFilterEntryRules,
-		BlockFilterEntryRules:       subscriptionForm.BlockFilterEntryRules,
-		FetchViaProxy:               subscriptionForm.FetchViaProxy,
-		DisableHTTP2:                subscriptionForm.DisableHTTP2,
-		ProxyURL:                    subscriptionForm.ProxyURL,
-	})
+	feed, localizedError := feedHandler.CreateFeed(h.store, user.ID, subscriptionForm.NewFeedCreationRequest(subscriptionForm.URL))
 	if localizedError != nil {
 		view.Set("form", subscriptionForm)
 		view.Set("errorMessage", localizedError.Translate(user.Language))
