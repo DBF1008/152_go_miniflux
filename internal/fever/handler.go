@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"miniflux.app/v2/internal/http/request"
-	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/integration"
 	"miniflux.app/v2/internal/mediaproxy"
 	"miniflux.app/v2/internal/model"
@@ -49,7 +48,7 @@ func (h *feverHandler) serve(w http.ResponseWriter, r *http.Request) {
 	case r.FormValue("mark") == "group":
 		h.handleWriteGroups(w, r)
 	default:
-		response.JSON(w, r, newBaseResponse())
+		sendResponse(w, r, newBaseResponse())
 	}
 }
 
@@ -80,13 +79,13 @@ func (h *feverHandler) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 	categories, err := h.store.Categories(userID)
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
 	feeds, err := h.store.Feeds(userID)
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -97,7 +96,7 @@ func (h *feverHandler) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 	result.FeedsGroups = buildFeedGroups(feeds)
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -132,7 +131,7 @@ func (h *feverHandler) handleFeeds(w http.ResponseWriter, r *http.Request) {
 
 	feeds, err := h.store.Feeds(userID)
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -157,7 +156,7 @@ func (h *feverHandler) handleFeeds(w http.ResponseWriter, r *http.Request) {
 
 	result.FeedsGroups = buildFeedGroups(feeds)
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -187,7 +186,7 @@ func (h *feverHandler) handleFavicons(w http.ResponseWriter, r *http.Request) {
 
 	icons, err := h.store.Icons(userID)
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -200,7 +199,7 @@ func (h *feverHandler) handleFavicons(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -288,14 +287,14 @@ func (h *feverHandler) handleItems(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := builder.GetEntries()
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
 	result.Total, err = h.store.NewEntryQueryBuilder(userID).
 		CountEntries()
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -325,7 +324,7 @@ func (h *feverHandler) handleItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -346,7 +345,7 @@ func (h *feverHandler) handleUnreadItems(w http.ResponseWriter, r *http.Request)
 		WithStatuses(model.EntryStatusUnread).
 		GetEntryIDs()
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -358,7 +357,7 @@ func (h *feverHandler) handleUnreadItems(w http.ResponseWriter, r *http.Request)
 	var result unreadResponse
 	result.ItemIDs = strings.Join(itemIDs, ",")
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -379,7 +378,7 @@ func (h *feverHandler) handleSavedItems(w http.ResponseWriter, r *http.Request) 
 		WithStarred(true).
 		GetEntryIDs()
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -390,7 +389,7 @@ func (h *feverHandler) handleSavedItems(w http.ResponseWriter, r *http.Request) 
 
 	result := &savedResponse{ItemIDs: strings.Join(itemsIDs, ",")}
 	result.SetCommonValues()
-	response.JSON(w, r, result)
+	sendResponse(w, r, result)
 }
 
 /*
@@ -413,7 +412,7 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 		WithEntryIDs(entryID).
 		GetEntry()
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
@@ -422,7 +421,7 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 			slog.Int64("user_id", userID),
 			slog.Int64("entry_id", entryID),
 		)
-		response.JSON(w, r, newBaseResponse())
+		sendResponse(w, r, newBaseResponse())
 		return
 	}
 
@@ -445,13 +444,13 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 			slog.Int64("entry_id", entryID),
 		)
 		if err := h.store.ToggleStarred(userID, entryID); err != nil {
-			response.JSONServerError(w, r, err)
+			sendServerError(w, r, err)
 			return
 		}
 
 		settings, err := h.store.Integration(userID)
 		if err != nil {
-			response.JSONServerError(w, r, err)
+			sendServerError(w, r, err)
 			return
 		}
 
@@ -464,12 +463,12 @@ func (h *feverHandler) handleWriteItems(w http.ResponseWriter, r *http.Request) 
 			slog.Int64("entry_id", entryID),
 		)
 		if err := h.store.ToggleStarred(userID, entryID); err != nil {
-			response.JSONServerError(w, r, err)
+			sendServerError(w, r, err)
 			return
 		}
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	sendResponse(w, r, newBaseResponse())
 }
 
 /*
@@ -494,11 +493,11 @@ func (h *feverHandler) handleWriteFeeds(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.store.MarkFeedAsRead(userID, feedID, before); err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	sendResponse(w, r, newBaseResponse())
 }
 
 /*
@@ -533,11 +532,11 @@ func (h *feverHandler) handleWriteGroups(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err != nil {
-		response.JSONServerError(w, r, err)
+		sendServerError(w, r, err)
 		return
 	}
 
-	response.JSON(w, r, newBaseResponse())
+	sendResponse(w, r, newBaseResponse())
 }
 
 /*

@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"miniflux.app/v2/internal/http/request"
-	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/storage"
 )
 
@@ -25,7 +24,7 @@ func Middleware(store *storage.Storage) func(http.Handler) http.Handler {
 					slog.String("client_ip", clientIP),
 					slog.String("user_agent", r.UserAgent()),
 				)
-				response.JSON(w, r, newAuthFailureResponse())
+				sendResponse(w, r, newAuthFailureResponse())
 				return
 			}
 
@@ -37,7 +36,7 @@ func Middleware(store *storage.Storage) func(http.Handler) http.Handler {
 					slog.String("user_agent", r.UserAgent()),
 					slog.Any("error", err),
 				)
-				response.JSON(w, r, newAuthFailureResponse())
+				sendResponse(w, r, newAuthFailureResponse())
 				return
 			}
 
@@ -47,7 +46,7 @@ func Middleware(store *storage.Storage) func(http.Handler) http.Handler {
 					slog.String("client_ip", clientIP),
 					slog.String("user_agent", r.UserAgent()),
 				)
-				response.JSON(w, r, newAuthFailureResponse())
+				sendResponse(w, r, newAuthFailureResponse())
 				return
 			}
 
