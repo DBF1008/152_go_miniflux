@@ -22,11 +22,23 @@ func NewXMLDecoder(data io.ReadSeeker) *xml.Decoder {
 	io.Copy(buffer, data)
 
 	if hasUTF8XMLDeclaration(buffer.Bytes()) {
-		// TODO: detect actual encoding from bytes if not UTF-8 and convert to UTF-8 if needed.
-		// For now we just expect the invalid characters to be stripped out.
+		rawBytes := buffer.Bytes()
+
+		// The XML prolog declares UTF-8 (or omits the encoding entirely), but the
+		// document is not valid UTF-8: the feed lies about its encoding and the
+		// content is still in a legacy charset. Detect the actual encoding and
+		// convert it to UTF-8, otherwise filterValidXMLChars below would treat
+		// every non-ASCII byte as invalid and silently drop the characters.
+		if !utf8.Valid(rawBytes) {
+			if utf8Reader, err := encoding.NewCharsetReaderFromBytes(rawBytes, ""); err == nil {
+				if convertedBytes, err := io.ReadAll(utf8Reader); err == nil {
+					rawBytes = convertedBytes
+				}
+			}
+		}
 
 		// Filter invalid chars now, since decoder.CharsetReader isn't called for utf-8 content
-		filteredBytes := filterValidXMLChars(buffer.Bytes())
+		filteredBytes := filterValidXMLChars(rawBytes)
 
 		decoder = xml.NewDecoder(bytes.NewReader(filteredBytes))
 	} else {

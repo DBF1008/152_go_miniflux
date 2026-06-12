@@ -65,10 +65,8 @@ func TestXMLDocumentWithISO88591FileEncodingButUTF8Prolog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// TODO: detect actual encoding from bytes if not UTF-8 and convert to UTF-8 if needed.
-	// For now we just expect the invalid characters to be stripped out.
-	expectedTo := "Anas"
-	expectedFrom := "Jrgen"
+	expectedTo := "Anaïs"
+	expectedFrom := "Jürgen"
 
 	if doc.To != expectedTo {
 		t.Errorf(`Incorrect "to" field, expected: %q, got: %q`, expectedTo, doc.To)
